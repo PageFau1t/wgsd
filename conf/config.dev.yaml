@@ -1,0 +1,31 @@
+persistent_peers:
+  sUYGWqh+/Yy/KJ8Pqz05fX9LQfSZX/6VLYrov7jGPnQ=:
+    name: "oracle1"
+peer_routes:
+  5p3/NOPmkI85ZdmxqC+PRFyOSEVG0EFGHXJVkO+UwRM=:
+    name: "nas07"
+    allowed_ips:
+      - ip: 10.0.4.7
+        mask:
+          - 255
+          - 255
+          - 255
+          - 255
+  ew2F4JSYDN80XDtjqCVMhAxcrmHXmS4jImxJnyBTMUY=:
+    name: "mechrevo_x3"
+    allowed_ips:
+      - ip: 10.0.4.2
+        mask:
+          - 255
+          - 255
+          - 255
+          - 255
+  lwDkLIBW46HY/StTWslwyPZxZx2kFk/AFE8RwhV0PXE=:
+    name: "mac14mid"
+    allowed_ips:
+      - ip: 10.0.4.3
+        mask:
+          - 255
+          - 255
+          - 255
+          - 255

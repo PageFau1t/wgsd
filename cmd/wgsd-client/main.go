@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"github.com/jwhited/wgsd"
 	"log"
 	"net"
 	"os"
@@ -27,6 +28,8 @@ var (
 )
 
 func main() {
+
+	wgsd.Parse()
 	flag.Parse()
 	if len(*deviceFlag) < 1 {
 		log.Fatal("missing device flag")
@@ -86,6 +89,9 @@ func main() {
 			}
 			if len(r.Answer) < 1 {
 				log.Printf("[%s] no SRV records found", pubKeyBase64)
+				if _, ok := wgsd.ClientConfig.PersistentPeers[pubKeyBase64]; !ok {
+					applyConfig(peer, true, &net.UDPAddr{}, wgDevice, wgClient)
+				}
 				continue
 			}
 			srv, ok := r.Answer[0].(*dns.SRV)
@@ -112,28 +118,7 @@ func main() {
 			} else {
 				endpointIP = hostA.A
 			}
-			peerConfig := wgtypes.PeerConfig{
-				PublicKey:  peer.PublicKey,
-				UpdateOnly: true,
-				Endpoint: &net.UDPAddr{
-					IP:   endpointIP,
-					Port: int(srv.Port),
-				},
-			}
-			deviceConfig := wgtypes.Config{
-				PrivateKey:   &wgDevice.PrivateKey,
-				ReplacePeers: false,
-				Peers:        []wgtypes.PeerConfig{peerConfig},
-			}
-			if wgDevice.FirewallMark > 0 {
-				deviceConfig.FirewallMark = &wgDevice.FirewallMark
-			}
-			err = wgClient.ConfigureDevice(*deviceFlag, deviceConfig)
-			if err != nil {
-				log.Printf(
-					"[%s] failed to configure peer on %s, error: %v",
-					pubKeyBase64, *deviceFlag, err)
-			}
+			applyConfig(peer, false, &net.UDPAddr{IP: endpointIP, Port: int(srv.Port)}, wgDevice, wgClient)
 		}
 	}()
 	sigCh := make(chan os.Signal, 1)
@@ -144,5 +129,41 @@ func main() {
 		cancel()
 		<-done
 	case <-done:
+	}
+}
+
+// applyConfig assign endpoint and route for peer
+func applyConfig(peer wgtypes.Peer, delete bool, endpoint *net.UDPAddr, wgDevice *wgtypes.Device, wgClient *wgctrl.Client) {
+	pubKeyBase64 := base64.StdEncoding.EncodeToString(peer.PublicKey[:])
+	var allowedIPs []net.IPNet
+	if !delete {
+		if route, ok := wgsd.ClientConfig.PeerRoutes[pubKeyBase64]; ok {
+			allowedIPs = route.AllowedIPs
+		} else {
+			log.Printf("[%s] missing AllowedIPs in config", pubKeyBase64)
+			return
+		}
+	}
+
+	peerConfig := wgtypes.PeerConfig{
+		PublicKey:         peer.PublicKey,
+		UpdateOnly:        true,
+		Endpoint:          endpoint,
+		ReplaceAllowedIPs: true,
+		AllowedIPs:        allowedIPs,
+	}
+	deviceConfig := wgtypes.Config{
+		PrivateKey:   &wgDevice.PrivateKey,
+		ReplacePeers: false,
+		Peers:        []wgtypes.PeerConfig{peerConfig},
+	}
+	if wgDevice.FirewallMark > 0 {
+		deviceConfig.FirewallMark = &wgDevice.FirewallMark
+	}
+	err := wgClient.ConfigureDevice(*deviceFlag, deviceConfig)
+	if err != nil {
+		log.Printf(
+			"[%s] failed to configure peer on %s, error: %v",
+			pubKeyBase64, *deviceFlag, err)
 	}
 }
