@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
@@ -52,6 +53,7 @@ const (
 	spPrefix           = "_wireguard._udp."
 	spSubPrefix        = "." + spPrefix
 	serviceInstanceLen = keyLen + len(spSubPrefix)
+	handshakeLifetime  = 4 * time.Minute
 )
 
 type handlerFn func(state request.Request, peers []wgtypes.Peer) (int, error)
@@ -75,7 +77,12 @@ func handlePTR(state request.Request, peers []wgtypes.Peer) (int, error) {
 	m.SetReply(state.Req)
 	m.Authoritative = true
 	for _, peer := range peers {
+		// skip peers with nil endpoints
 		if peer.Endpoint == nil {
+			continue
+		}
+		// skip timeout peers
+		if peer.LastHandshakeTime.Add(handshakeLifetime).Before(time.Now()) {
 			continue
 		}
 		m.Answer = append(m.Answer, &dns.PTR{
@@ -103,7 +110,12 @@ func handleSRV(state request.Request, peers []wgtypes.Peer) (int, error) {
 		if strings.EqualFold(
 			base32.StdEncoding.EncodeToString(peer.PublicKey[:]), pubKey) {
 			endpoint := peer.Endpoint
+			// skip peers with nil endpoints
 			if endpoint == nil {
+				return nxDomain(state)
+			}
+			// skip timeout peers
+			if peer.LastHandshakeTime.Add(handshakeLifetime).Before(time.Now()) {
 				return nxDomain(state)
 			}
 			hostRR := getHostRR(state.Name(), endpoint)
