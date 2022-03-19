@@ -76,6 +76,9 @@ func main() {
 			srvCtx, srvCancel := context.WithCancel(ctx)
 			pubKeyBase32 := base32.StdEncoding.EncodeToString(peer.PublicKey[:])
 			pubKeyBase64 := base64.StdEncoding.EncodeToString(peer.PublicKey[:])
+			if _, ok := wgsd.ClientConfig.PersistentPeers[pubKeyBase64]; ok {
+				continue
+			}
 			m := &dns.Msg{}
 			question := fmt.Sprintf("%s._wireguard._udp.%s",
 				pubKeyBase32, dns.Fqdn(*dnsZoneFlag))
@@ -89,9 +92,7 @@ func main() {
 			}
 			if len(r.Answer) < 1 {
 				log.Printf("[%s] no SRV records found", pubKeyBase64)
-				if _, ok := wgsd.ClientConfig.PersistentPeers[pubKeyBase64]; !ok {
-					applyConfig(peer, true, &net.UDPAddr{}, wgDevice, wgClient)
-				}
+				applyConfig(peer, true, nil, wgDevice, wgClient)
 				continue
 			}
 			srv, ok := r.Answer[0].(*dns.SRV)
@@ -136,9 +137,11 @@ func main() {
 func applyConfig(peer wgtypes.Peer, delete bool, endpoint *net.UDPAddr, wgDevice *wgtypes.Device, wgClient *wgctrl.Client) {
 	pubKeyBase64 := base64.StdEncoding.EncodeToString(peer.PublicKey[:])
 	var allowedIPs []net.IPNet
+	keepalive := time.Duration(0)
 	if !delete {
 		if route, ok := wgsd.ClientConfig.PeerRoutes[pubKeyBase64]; ok {
 			allowedIPs = route.AllowedIPs
+			keepalive = 25 * time.Second
 		} else {
 			log.Printf("[%s] missing AllowedIPs in config", pubKeyBase64)
 			return
@@ -146,11 +149,14 @@ func applyConfig(peer wgtypes.Peer, delete bool, endpoint *net.UDPAddr, wgDevice
 	}
 
 	peerConfig := wgtypes.PeerConfig{
-		PublicKey:         peer.PublicKey,
-		UpdateOnly:        true,
-		Endpoint:          endpoint,
-		ReplaceAllowedIPs: true,
-		AllowedIPs:        allowedIPs,
+		PublicKey:                   peer.PublicKey,
+		UpdateOnly:                  true,
+		ReplaceAllowedIPs:           true,
+		AllowedIPs:                  allowedIPs,
+		PersistentKeepaliveInterval: &keepalive,
+	}
+	if endpoint != nil {
+		peerConfig.Endpoint = endpoint
 	}
 	deviceConfig := wgtypes.Config{
 		PrivateKey:   &wgDevice.PrivateKey,

@@ -13,6 +13,8 @@ import (
 )
 
 func init() {
+	allowedPeers.Store("ew2F4JSYDN80XDtjqCVMhAxcrmHXmS4jImxJnyBTMUY=", struct{}{}) // TODO: debug
+	allowedPeers.Store("lwDkLIBW46HY/StTWslwyPZxZx2kFk/AFE8RwhV0PXE=", struct{}{})
 	plugin.Register(pluginName, setup)
 }
 

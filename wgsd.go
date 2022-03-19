@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coredns/coredns/plugin"
@@ -18,9 +19,11 @@ import (
 
 // coredns plugin-specific logger
 var logger = clog.NewWithPlugin(pluginName)
+var allowedPeers = sync.Map{}
 
 const (
-	pluginName = "wgsd"
+	pluginName       = "wgsd"
+	webInterfaceAddr = "0.0.0.0:22180" // TODO: web interface
 )
 
 // WGSD is a CoreDNS plugin that provides WireGuard peer information via DNS-SD
@@ -77,12 +80,13 @@ func handlePTR(state request.Request, peers []wgtypes.Peer) (int, error) {
 	m.SetReply(state.Req)
 	m.Authoritative = true
 	for _, peer := range peers {
+		pubKeyBase64 := base64.StdEncoding.EncodeToString(peer.PublicKey[:])
 		// skip peers with nil endpoints
 		if peer.Endpoint == nil {
 			continue
 		}
-		// skip timeout peers
-		if peer.LastHandshakeTime.Add(handshakeLifetime).Before(time.Now()) {
+		// skip ignored peers, skip timeout peers
+		if _, ok := allowedPeers.Load(pubKeyBase64); !ok || peer.LastHandshakeTime.Add(handshakeLifetime).Before(time.Now()) {
 			continue
 		}
 		m.Answer = append(m.Answer, &dns.PTR{
@@ -110,13 +114,14 @@ func handleSRV(state request.Request, peers []wgtypes.Peer) (int, error) {
 		if strings.EqualFold(
 			base32.StdEncoding.EncodeToString(peer.PublicKey[:]), pubKey) {
 			endpoint := peer.Endpoint
+			pubKeyBase64 := base64.StdEncoding.EncodeToString(peer.PublicKey[:])
 			// skip peers with nil endpoints
 			if endpoint == nil {
 				return nxDomain(state)
 			}
-			// skip timeout peers
-			if peer.LastHandshakeTime.Add(handshakeLifetime).Before(time.Now()) {
-				return nxDomain(state)
+			// skip ignored peers, skip timeout peers
+			if _, ok := allowedPeers.Load(pubKeyBase64); !ok || peer.LastHandshakeTime.Add(handshakeLifetime).Before(time.Now()) {
+				continue
 			}
 			hostRR := getHostRR(state.Name(), endpoint)
 			if hostRR == nil {
